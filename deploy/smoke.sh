@@ -30,6 +30,14 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NS="${NAMESPACE:-train-ticket}"
 KCTX="${KCTX:-$(kubectl config current-context 2>/dev/null || echo '')}"
 TIMEOUT="${SMOKE_TIMEOUT:-180}"
+# Image for the short-lived probe pod that performs the end-to-end write.
+#
+# Overridable because it is an upstream docker.io image and a cluster with no
+# route to `auth.docker.io` simply cannot pull it -- which is the case on
+# `admin:school`, where the probe pod sits in ImagePullBackOff and takes the one
+# check that proves the stack (rather than its parts) with it. Mirror it into
+# whatever registry the cluster can reach and point this at the mirror.
+SMOKE_IMAGE="${SMOKE_IMAGE:-curlimages/curl:8.10.1}"
 
 k() {
   if [ -n "$KCTX" ]; then
@@ -156,7 +164,8 @@ rm -f /tmp/smoke-dbs.$$
 # --------------------------------------------------------------------------
 section "end-to-end write"
 # `kubectl get --raw` cannot POST, so the write goes through a short-lived pod.
-# curlimages/curl is what deploy/e2e/lib.sh already uses in this cluster.
+# curlimages/curl is what deploy/e2e/lib.sh already uses in this cluster; see
+# SMOKE_IMAGE for why it is a variable rather than a literal.
 SMOKE_POD="smoke-verify-$$"
 cleanup() { k delete pod "$SMOKE_POD" --ignore-not-found --wait=false >/dev/null 2>&1 || true; }
 trap cleanup EXIT
@@ -180,7 +189,7 @@ print(f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:32]}")
 PY
 )
 
-if ! k run "$SMOKE_POD" --image=curlimages/curl:8.10.1 --restart=Never --command -- sleep 120 >/dev/null 2>&1; then
+if ! k run "$SMOKE_POD" --image="$SMOKE_IMAGE" --restart=Never --command -- sleep 120 >/dev/null 2>&1; then
   fail "could not start smoke pod"
 elif ! k wait --for=condition=Ready "pod/$SMOKE_POD" --timeout=90s >/dev/null 2>&1; then
   fail "smoke pod did not become ready"

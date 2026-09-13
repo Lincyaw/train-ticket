@@ -42,7 +42,19 @@ command -v helm >/dev/null 2>&1 || {
 # ImagePullBackOff the --set was added to prevent, just moved one step earlier.
 # Unset means "whatever the values files say", which is what a bare
 # `deploy/render-manifests.sh` should show.
-set -- "$RELEASE" "$CHART" -f "$VALUES" --namespace "$NS"
+#
+# HELM_VALUES is a whitespace-separated LIST, matching helm's own `-f` layering
+# order (later files win). An environment profile that only differs from
+# another by a handful of keys -- values-acr.yaml over values-prod.yaml, say --
+# should not have to be a full copy of the file it is a delta against, and a
+# single-file restriction here would force exactly that, because every derived
+# list in this directory (build-images.sh, smoke.sh, push-images.sh) renders
+# through here. Splitting on whitespace is what makes `helm -f a -f b`
+# expressible as one variable.
+set -- "$RELEASE" "$CHART" --namespace "$NS"
+for values_file in $VALUES; do
+  set -- "$@" -f "$values_file"
+done
 if [ -n "${IMAGE_TAG:-}" ]; then
   set -- "$@" --set "global.imageTag=${IMAGE_TAG}"
 fi
