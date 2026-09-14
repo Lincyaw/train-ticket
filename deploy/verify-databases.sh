@@ -44,7 +44,18 @@ note() { printf '  %s\n' "$1"; }
 bad() { printf '  MISSING  %s\n' "$1" >&2; fail=1; }
 
 # ── Expected: host -> databases, from the rendered release.
-rendered=$(helm template "$RELEASE" "$CHART" -f "$VALUES" --namespace "$NS" 2>/dev/null)
+# HELM_VALUES is a whitespace-separated LIST, layered in helm's own `-f` order
+# (later files win), matching deploy/render-manifests.sh. An environment profile
+# that is a delta against another -- values-acr.yaml over values-prod.yaml, say
+# -- must not have to be a full copy of it just because this script takes one
+# file. Passing the two files as a single unquoted `-f` argument, which is what
+# this did before, makes helm treat "a.yaml b.yaml" as one filename, render
+# nothing, and report it as a missing chart rather than a bad argument.
+set -- "$RELEASE" "$CHART" --namespace "$NS"
+for values_file in $VALUES; do
+  set -- "$@" -f "$values_file"
+done
+rendered=$(helm template "$@" 2>/dev/null)
 if [ -z "$rendered" ]; then
   echo "verify-databases: helm template produced nothing (chart=$CHART values=$VALUES)" >&2
   exit 1
